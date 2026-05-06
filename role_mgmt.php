@@ -22,12 +22,10 @@ if (isset($_POST['save_role'])) {
         if (empty($role_name)) throw new Exception("Role designation is required.");
 
         if ($role_id) {
-            // Update
             $stmt = $conn->prepare("UPDATE roles SET role_name = ? WHERE id = ?");
             $stmt->bind_param("si", $role_name, $role_id);
             $action = "updated";
         } else {
-            // Insert
             $stmt = $conn->prepare("INSERT INTO roles (role_name) VALUES (?)");
             $stmt->bind_param("s", $role_name);
             $action = "authorized";
@@ -41,21 +39,26 @@ if (isset($_POST['save_role'])) {
     }
 }
 
-// 2. Delete Role
-if (isset($_GET['delete'])) {
-    $id = $_GET['delete'];
+// 2. Delete Role Logic
+if (isset($_GET['delete_id'])) {
+    $id = intval($_GET['delete_id']);
     try {
-        // Protection: Prevent deleting Super Admin
         if ($id == 1) throw new Exception("Critical Error: The Root Super Admin role cannot be purged.");
 
         $stmt = $conn->prepare("DELETE FROM roles WHERE id = ?");
         $stmt->bind_param("i", $id);
         if ($stmt->execute()) {
-            $feedback = ['type' => 'success', 'msg' => "Role privilege revoked and removed."];
+            header("Location: role_mgmt.php?status=deleted");
+            exit();
         }
     } catch (Exception $e) {
         $feedback = ['type' => 'error', 'msg' => $e->getMessage()];
     }
+}
+
+// Success message after redirect
+if(isset($_GET['status']) && $_GET['status'] == 'deleted'){
+    $feedback = ['type' => 'success', 'msg' => "Role privilege revoked and removed."];
 }
 
 $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
@@ -66,10 +69,13 @@ $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
 <head>
     <meta charset="UTF-8">
     <title>ASB | Role Management</title>
-	 <link rel="icon" type="image/png" href="logo.png">
+    <link rel="icon" type="image/png" href="logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <!-- Added SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; }
@@ -77,36 +83,27 @@ $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
         .sidebar { background: #0f172a; }
         .crimson-btn { background: linear-gradient(135deg, #be123c 0%, #9f1239 100%); transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
         .crimson-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -6px rgba(190, 18, 60, 0.4); }
+        .swal2-popup { border-radius: 2rem !important; font-family: 'Plus Jakarta Sans', sans-serif !important; }
     </style>
 </head>
 <body class="flex">
 
-    <!-- Sidebar -->
+    <!-- Sidebar (Same as yours) -->
     <div class="sidebar w-72 min-h-screen text-slate-400 p-6 hidden lg:block sticky top-0">
         <div class="mb-10 px-4">
             <h1 class="text-xl font-black text-white italic tracking-tighter">ASB <span class="text-rose-600">GROUP</span></h1>
         </div>
         <nav class="space-y-1">
-            <a href="dashboard.php" class="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-sm">
-                <i class="fa-solid fa-house"></i> Dashboard
-            </a>
-            <a href="category_mgmt.php" class="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-sm">
-                <i class="fa-solid fa-folder-tree"></i> Categories
-            </a>
-            <a href="role_mgmt.php" class="flex items-center gap-3 p-3 bg-rose-600/10 text-rose-500 rounded-xl font-bold transition text-sm">
-                <i class="fa-solid fa-user-shield"></i> System Roles
-            </a>
+            <a href="dashboard.php" class="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-sm"><i class="fa-solid fa-house"></i> Dashboard</a>
+            <a href="category_mgmt.php" class="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-sm"><i class="fa-solid fa-folder-tree"></i> Categories</a>
+            <a href="role_mgmt.php" class="flex items-center gap-3 p-3 bg-rose-600/10 text-rose-500 rounded-xl font-bold transition text-sm"><i class="fa-solid fa-user-shield"></i> System Roles</a>
             <div class="mt-20 px-4">
-                <a href="logout.php" class="text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-rose-500 transition">
-                    <i class="fa-solid fa-power-off mr-2"></i> Close Session
-                </a>
+                <a href="logout.php" class="text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-rose-500 transition"><i class="fa-solid fa-power-off mr-2"></i> Close Session</a>
             </div>
         </nav>
     </div>
 
-    <!-- Content -->
     <main class="flex-1 p-8 lg:p-12">
-        
         <div class="flex justify-between items-end mb-10">
             <div class="animate__animated animate__fadeInLeft">
                 <h2 class="text-3xl font-black text-slate-900 tracking-tight uppercase italic">Access <span class="text-rose-700">Hierarchy</span></h2>
@@ -120,14 +117,10 @@ $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
         <!-- Feedback UI -->
         <?php if($feedback['msg']): ?>
             <div class="animate__animated animate__backInDown mb-8 p-5 rounded-2xl flex items-center gap-4 <?php echo $feedback['type'] == 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : 'bg-rose-50 text-rose-800 border border-rose-100'; ?>">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center <?php echo $feedback['type'] == 'success' ? 'bg-emerald-500/10' : 'bg-rose-500/10'; ?>">
-                    <i class="fa-solid <?php echo $feedback['type'] == 'success' ? 'fa-check' : 'fa-xmark'; ?>"></i>
-                </div>
                 <span class="text-xs font-black uppercase tracking-wider"><?php echo $feedback['msg']; ?></span>
             </div>
         <?php endif; ?>
 
-        <!-- Roles Table -->
         <div class="glass-panel rounded-[2.5rem] shadow-sm overflow-hidden animate__animated animate__fadeInUp">
             <table class="w-full text-left">
                 <thead>
@@ -142,21 +135,17 @@ $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
                     <?php while($row = $roles->fetch_assoc()): ?>
                     <tr class="hover:bg-slate-50 transition group">
                         <td class="px-10 py-6 font-black text-rose-700 text-sm">LVL-<?php echo str_pad($row['id'], 2, '0', STR_PAD_LEFT); ?></td>
-                        <td class="px-10 py-6">
-                            <span class="font-extrabold text-slate-800 uppercase tracking-tighter text-base"><?php echo $row['role_name']; ?></span>
-                        </td>
-                        <td class="px-10 py-6">
-                            <span class="px-3 py-1 bg-slate-100 text-slate-500 text-[9px] font-black rounded-full uppercase">Active Profile</span>
-                        </td>
+                        <td class="px-10 py-6"><span class="font-extrabold text-slate-800 uppercase tracking-tighter text-base"><?php echo $row['role_name']; ?></span></td>
+                        <td class="px-10 py-6"><span class="px-3 py-1 bg-slate-100 text-slate-500 text-[9px] font-black rounded-full uppercase">Active Profile</span></td>
                         <td class="px-10 py-6 text-right space-x-1">
                             <button onclick='editRole(<?php echo json_encode($row); ?>)' class="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-900 hover:text-white transition shadow-sm">
                                 <i class="fa-solid fa-pen-nib text-xs"></i>
                             </button>
                             <?php if($row['id'] != 1): ?>
-                            <a href="" onclick="return confirm('CRITICAL: Removing a role may disconnect associated users. Proceed?')" 
-                               class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition shadow-sm">
+                            <!-- Fixed Delete Button with SweetAlert trigger -->
+                            <button onclick="confirmDelete(<?php echo $row['id']; ?>)" class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition shadow-sm">
                                 <i class="fa-solid fa-trash-can text-xs"></i>
-                            </a>
+                            </button>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -166,7 +155,7 @@ $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
         </div>
     </main>
 
-    <!-- Role Modal -->
+    <!-- Role Modal (Same as yours) -->
     <div id="roleModal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-6">
         <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate__animated animate__fadeInUp animate__faster">
             <div class="p-12">
@@ -174,25 +163,13 @@ $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
                     <h3 id="modalTitle" class="text-xl font-black text-slate-900 uppercase italic">Register <span class="text-rose-700">Role</span></h3>
                     <button onclick="closeRoleModal()" class="text-slate-300 hover:text-rose-900 transition"><i class="fa-solid fa-circle-xmark text-2xl"></i></button>
                 </div>
-
                 <form action="" method="POST" class="space-y-8">
                     <input type="hidden" name="role_id" id="role_id">
-                    
                     <div class="relative border-b-2 border-slate-100 focus-within:border-rose-600 transition-all duration-500">
                         <label class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-1">Role Title</label>
-                        <input type="text" name="role_name" id="role_name" required placeholder="e.g. OPERATION_MANAGER"
-                            class="w-full py-4 bg-transparent outline-none font-bold text-slate-800 placeholder:text-slate-200 placeholder:font-normal uppercase tracking-wider">
+                        <input type="text" name="role_name" id="role_name" required placeholder="e.g. OPERATION_MANAGER" class="w-full py-4 bg-transparent outline-none font-bold text-slate-800 placeholder:text-slate-200 placeholder:font-normal uppercase tracking-wider">
                     </div>
-
-                    <div class="bg-rose-50 p-4 rounded-2xl">
-                        <p class="text-[9px] font-bold text-rose-700 leading-relaxed uppercase">
-                            <i class="fa-solid fa-circle-info mr-1"></i> New roles will require manual permission mapping via the "Assign to Roles" module.
-                        </p>
-                    </div>
-
-                    <button type="submit" name="save_role" class="crimson-btn w-full py-5 rounded-[1.5rem] text-white font-black uppercase tracking-[0.2em] text-[10px]">
-                        Save System Authorization
-                    </button>
+                    <button type="submit" name="save_role" class="crimson-btn w-full py-5 rounded-[1.5rem] text-white font-black uppercase tracking-[0.2em] text-[10px]">Save System Authorization</button>
                 </form>
             </div>
         </div>
@@ -208,15 +185,33 @@ $roles = $conn->query("SELECT * FROM roles ORDER BY id ASC");
             rModal.classList.remove('hidden');
         }
 
-        function closeRoleModal() {
-            rModal.classList.add('hidden');
-        }
+        function closeRoleModal() { rModal.classList.add('hidden'); }
 
         function editRole(data) {
             document.getElementById('modalTitle').innerHTML = 'Update <span class="text-rose-700">Privilege</span>';
             document.getElementById('role_id').value = data.id;
             document.getElementById('role_name').value = data.role_name;
             rModal.classList.remove('hidden');
+        }
+
+        // --- NEW SWEETALERT DELETE FUNCTION ---
+        function confirmDelete(id) {
+            Swal.fire({
+                title: 'REVOKE PRIVILEGE?',
+                text: "Deleting this role might disconnect users assigned to it!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#be123c',
+                cancelButtonColor: '#0f172a',
+                confirmButtonText: 'YES, PURGE ROLE',
+                cancelButtonText: 'ABORT',
+                background: '#ffffff',
+                color: '#0f172a'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = "role_mgmt.php?delete_id=" + id;
+                }
+            })
         }
     </script>
 </body>

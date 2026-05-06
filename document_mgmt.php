@@ -7,15 +7,22 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role_id'] != 1) {
 
 $conn = new mysqli("localhost", "root", "", "asb_file_system");
 
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+// Variables to trigger the SweetAlert2 JS
+$show_sms_prompt = false;
+$sms_params = [];
+
 // --- CRUD LOGIC ---
 
-// 1. Create Document with File Upload
 if (isset($_POST['add_doc'])) {
     $title = $_POST['title'];
     $date = $_POST['doc_date'];
     $number = $_POST['doc_number'];
-    $cat_id = $_POST['category_id'];
-    $branch_id = $_POST['branch_id'];
+    $cat_id = intval($_POST['category_id']); 
+    $branch_input = intval($_POST['branch_id']); 
 
     if (isset($_FILES['doc_file']) && $_FILES['doc_file']['type'] == 'application/pdf') {
         $target_dir = "uploads/docs/";
@@ -25,51 +32,73 @@ if (isset($_POST['add_doc'])) {
         $target_file = $target_dir . $file_name;
 
         if (move_uploaded_file($_FILES["doc_file"]["tmp_name"], $target_file)) {
+            // Save exactly as input (Branch 3 is handled normally)
             $stmt = $conn->prepare("INSERT INTO documents (title, doc_date, doc_number, file_path, category_id, branch_id) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("ssssii", $title, $date, $number, $target_file, $cat_id, $branch_id);
-            $stmt->execute();
+            $stmt->bind_param("ssssii", $title, $date, $number, $target_file, $cat_id, $branch_input);
+            
+            if($stmt->execute()) {
+                // 1. Get Category Name
+                $stmt_cat = $conn->prepare("SELECT category_name FROM categories WHERE id = ?");
+                $stmt_cat->bind_param("i", $cat_id);
+                $stmt_cat->execute();
+                $cat_data = $stmt_cat->get_result()->fetch_assoc();
+                $cat_name = $cat_data['category_name'] ?? 'General';
+
+                // 2. Get Branch Name (Normal lookup for all IDs)
+                $stmt_br = $conn->prepare("SELECT branch_name FROM branches WHERE id = ?");
+                $stmt_br->bind_param("i", $branch_input);
+                $stmt_br->execute();
+                $br_data = $stmt_br->get_result()->fetch_assoc();
+                $branch_name = $br_data['branch_name'] ?? 'Universal Showrooms';
+
+                // 3. Prepare data for SweetAlert2 (Triggers for ANY branch ID)
+                $show_sms_prompt = true;
+                $sms_params = [
+                    'title' => $title,
+                    'cat_name' => $cat_name,
+                    'cat_id' => $cat_id,
+                    'branch_name' => $branch_name,
+                    'branch_id' => $branch_input 
+                ];
+            }
         }
     }
 }
 
-// 2. Delete Document & Physical File
+// Delete Logic
 if (isset($_GET['delete'])) {
-    $id = $_GET['delete'];
+    $id = intval($_GET['delete']);
     $res = $conn->query("SELECT file_path FROM documents WHERE id = $id");
-    if ($row = $res->fetch_assoc()) {
-        if (file_exists($row['file_path'])) {
-            unlink($row['file_path']); // Deletes actual file
-        }
+    if ($res && $row = $res->fetch_assoc()) {
+        if (!empty($row['file_path']) && file_exists($row['file_path'])) unlink($row['file_path']);
     }
     $conn->query("DELETE FROM documents WHERE id = $id");
     header("Location: document_mgmt.php");
+    exit();
 }
 
-// Fetch Data
-$docs = $conn->query("SELECT d.*, c.category_name, b.branch_name 
-                      FROM documents d 
-                      LEFT JOIN categories c ON d.category_id = c.id 
-                      LEFT JOIN branches b ON d.branch_id = b.id");
-
+// Fetch lists for the UI
+$docs = $conn->query("SELECT d.*, c.category_name, b.branch_name FROM documents d LEFT JOIN categories c ON d.category_id = c.id LEFT JOIN branches b ON d.branch_id = b.id ORDER BY d.id DESC");
 $cats = $conn->query("SELECT id, category_name FROM categories");
 $brs = $conn->query("SELECT id, branch_name FROM branches");
 ?>
 
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html lang="en"><head>
     <meta charset="UTF-8">
     <title>Registry Terminal | ASB Group</title>
-	 <link rel="icon" type="image/png" href="logo.png">
+    <link rel="icon" type="image/png" href="logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; }
         .crimson-gradient { background: linear-gradient(135deg, #be123c 0%, #7f1d1d 100%); }
         .drop-zone { border: 2px dashed #e2e8f0; transition: all 0.3s; }
         .drop-zone--over { border-color: #be123c; background: #fff1f2; }
+        .swal2-popup { border-radius: 2rem !important; font-family: 'Plus Jakarta Sans', sans-serif !important; }
     </style>
 </head>
 <body class="flex">
@@ -95,28 +124,30 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
             </button>
         </header>
 
+        <!-- Document List -->
         <div class="grid grid-cols-1 gap-4">
-            <?php while($row = $docs->fetch_assoc()): ?>
-            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between hover:shadow-lg transition group">
-                <div class="flex items-center gap-6">
-                    <div class="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition-all duration-500">
-                        <i class="fa-solid fa-file-pdf text-2xl"></i>
-                    </div>
-                    <div>
-                        <h4 class="font-black text-slate-800 uppercase italic tracking-tight"><?php echo $row['title']; ?></h4>
-                        <div class="flex gap-4 mt-1">
-                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest"><i class="fa-solid fa-hashtag mr-1"></i> <?php echo $row['doc_number']; ?></span>
-                            <span class="text-[9px] font-black text-rose-500 uppercase tracking-widest"><i class="fa-solid fa-calendar mr-1"></i> <?php echo $row['doc_date']; ?></span>
-                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest"><i class="fa-solid fa-folder-open mr-1"></i> <?php echo $row['category_name']; ?></span>
+            <?php if($docs): while($row = $docs->fetch_assoc()): ?>
+                <div class="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between hover:shadow-lg transition group">
+                    <div class="flex items-center gap-6">
+                        <div class="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition-all duration-500">
+                            <i class="fa-solid fa-file-pdf text-2xl"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-black text-slate-800 uppercase italic tracking-tight"><?php echo htmlspecialchars($row['title']); ?></h4>
+                            <div class="flex gap-4 mt-1">
+                                <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest"><i class="fa-solid fa-hashtag mr-1"></i> <?php echo $row['doc_number']; ?></span>
+                                <span class="text-[9px] font-black text-rose-500 uppercase tracking-widest"><i class="fa-solid fa-calendar mr-1"></i> <?php echo $row['doc_date']; ?></span>
+                                <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest"><i class="fa-solid fa-folder-open mr-1"></i> <?php echo $row['category_name']; ?></span>
+                                <span class="text-[9px] font-black bg-slate-100 px-2 rounded text-slate-600 uppercase italic"><?php echo $row['branch_name']; ?></span>
+                            </div>
                         </div>
                     </div>
+                    <div class="flex items-center gap-3">
+                        <a href="<?php echo $row['file_path']; ?>" target="_blank" class="px-6 py-2 bg-slate-900 text-white text-[9px] font-black uppercase rounded-xl hover:bg-rose-700 transition">View PDF</a>
+                        <button onclick="confirmDelete(<?php echo $row['id']; ?>)" class="p-3 text-slate-300 hover:text-rose-600 transition"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
                 </div>
-                <div class="flex items-center gap-3">
-                    <a href="<?php echo $row['file_path']; ?>" target="_blank" class="px-6 py-2 bg-slate-900 text-white text-[9px] font-black uppercase rounded-xl hover:bg-rose-700 transition">View PDF</a>
-                    <a href="" onclick="return confirm('Wipe document and physical file?')" class="p-3 text-slate-300 hover:text-rose-600 transition"><i class="fa-solid fa-trash-can"></i></a>
-                </div>
-            </div>
-            <?php endwhile; ?>
+            <?php endwhile; endif; ?>
         </div>
     </main>
 
@@ -132,15 +163,16 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
                 
                 <div class="grid grid-cols-3 gap-4">
                     <input type="date" name="doc_date" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm">
-                    <select name="category_id" class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm uppercase">
-                        <?php while($c = $cats->fetch_assoc()) echo "<option value='{$c['id']}'>{$c['category_name']}</option>"; ?>
+                    <select name="category_id" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm uppercase">
+                        <option value="">Select Category</option>
+                        <?php if($cats) { $cats->data_seek(0); while($c = $cats->fetch_assoc()) echo "<option value='{$c['id']}'>{$c['category_name']}</option>"; } ?>
                     </select>
-                    <select name="branch_id" class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm uppercase">
-                        <?php while($b = $brs->fetch_assoc()) echo "<option value='{$b['id']}'>{$b['branch_name']}</option>"; ?>
+                    <select name="branch_id" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm uppercase">
+                        <option value="">Select Branch</option>
+                        <?php if($brs) { $brs->data_seek(0); while($b = $brs->fetch_assoc()) echo "<option value='{$b['id']}'>{$b['branch_name']}</option>"; } ?>
                     </select>
                 </div>
 
-                <!-- Drag & Drop Zone -->
                 <div id="dropZone" class="drop-zone rounded-[2rem] p-12 text-center cursor-pointer">
                     <i class="fa-solid fa-file-pdf text-4xl text-slate-200 mb-4"></i>
                     <p class="text-xs font-black text-slate-400 uppercase tracking-widest">Drag PDF here or click to browse</p>
@@ -166,21 +198,54 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
         function closeModal() { modal.classList.add('hidden'); }
 
         dropZone.onclick = () => fileInput.click();
-        
         fileInput.onchange = () => {
             if(fileInput.files.length) fileNameDisp.innerText = "Selected: " + fileInput.files[0].name;
         };
 
-        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('drop-zone--over'); };
-        dropZone.ondragleave = () => dropZone.classList.remove('drop-zone--over');
-        dropZone.ondrop = (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drop-zone--over');
-            if(e.dataTransfer.files.length) {
-                fileInput.files = e.dataTransfer.files;
-                fileNameDisp.innerText = "Dropped: " + e.dataTransfer.files[0].name;
-            }
+        function confirmDelete(id) {
+            Swal.fire({
+                title: 'Are you sure?',
+                text: "This will wipe the physical PDF and database entry!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#be123c',
+                cancelButtonColor: '#0f172a',
+                confirmButtonText: 'Yes, Delete it!',
+                background: '#ffffff',
+                color: '#0f172a'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = "?delete=" + id;
+                }
+            })
+        }
+
+        // --- Post-Upload SweetAlert2 Logic ---
+        <?php if ($show_sms_prompt): ?>
+        window.onload = function() {
+            const params = <?php echo json_encode($sms_params); ?>;
+            
+            Swal.fire({
+                title: 'Document Secured!',
+                text: "The document for <?php echo addslashes($sms_params['branch_name']); ?> has been recorded. Do you want to broadcast SMS alerts?",
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonColor: '#be123c',
+                cancelButtonColor: '#64748b',
+                confirmButtonText: 'Broadcast SMS',
+                cancelButtonText: 'No, Just Finish',
+                background: '#ffffff',
+                color: '#0f172a'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const queryString = new URLSearchParams(params).toString();
+                    window.location.href = "send_notification.php?" + queryString;
+                } else {
+                    window.location.href = "document_mgmt.php";
+                }
+            });
         };
+        <?php endif; ?>
     </script>
 </body>
 </html>

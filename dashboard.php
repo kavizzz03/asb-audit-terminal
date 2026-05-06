@@ -34,9 +34,13 @@ $categories = $stmt->get_result();
 
 // Stats for Super Admin View
 $branch_count = 0;
+$total_docs = 0;
 if ($is_super_admin) {
     $bc_res = $conn->query("SELECT COUNT(*) as total FROM branches");
     $branch_count = $bc_res->fetch_assoc()['total'];
+    
+    $doc_res = $conn->query("SELECT COUNT(*) as total FROM documents");
+    $total_docs = $doc_res->fetch_assoc()['total'];
 }
 ?>
 
@@ -46,7 +50,7 @@ if ($is_super_admin) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ASB Dashboard | Central Registry</title>
-	 <link rel="icon" type="image/png" href="logo.png">
+    <link rel="icon" type="image/png" href="logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
@@ -89,6 +93,10 @@ if ($is_super_admin) {
                     <p class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Master Control</p>
                 </div>
                 
+                <a href="document_interactions.php" class="nav-link flex items-center gap-3 p-3 rounded-r-xl text-sm font-semibold hover:text-white text-rose-400">
+                    <i class="fa-solid fa-file-import"></i> Document Ingress
+                </a>
+
                 <a href="branch_mgmt.php" class="nav-link flex items-center gap-3 p-3 rounded-r-xl text-sm font-semibold hover:text-white">
                     <i class="fa-solid fa-building-shield text-rose-700"></i> Branch Management
                 </a>
@@ -113,7 +121,6 @@ if ($is_super_admin) {
                     <i class="fa-solid fa-file-shield text-rose-700"></i> Global Documents
                 </a>
 
-                <!-- USER SESSIONS LINK -->
                 <a href="user_sessions.php" class="nav-link flex items-center gap-3 p-3 rounded-r-xl text-sm font-semibold hover:text-white">
                     <i class="fa-solid fa-clock-rotate-left text-rose-700"></i> Active Sessions
                 </a>
@@ -147,8 +154,8 @@ if ($is_super_admin) {
                 <!-- Branch Stats -->
                 <?php if($is_super_admin): ?>
                 <div class="hidden md:block text-right">
-                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Network Overview</p>
-                    <p class="text-xs font-black text-slate-800 uppercase italic"><?php echo $branch_count; ?> Active Branches</p>
+                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Global Vault Size</p>
+                    <p class="text-xs font-black text-slate-800 uppercase italic"><?php echo $total_docs; ?> Documents Indexed</p>
                 </div>
                 <?php endif; ?>
 
@@ -179,6 +186,14 @@ if ($is_super_admin) {
                         <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Access Level</p>
                         <p class="text-xl font-black text-rose-700 uppercase italic">Lvl: <?php echo $role_id; ?></p>
                     </div>
+                    <?php if($is_super_admin): ?>
+                    <a href="document_interactions.php" class="crimson-gradient-bg p-6 rounded-3xl shadow-lg shadow-rose-200 min-w-[160px] group transition-all hover:scale-105">
+                        <p class="text-[10px] font-black text-white/60 uppercase mb-1">System Action</p>
+                        <p class="text-xl font-black text-white uppercase italic flex items-center gap-2">
+                            New Ingress <i class="fa-solid fa-plus-circle group-hover:rotate-90 transition-transform"></i>
+                        </p>
+                    </a>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Archive Search -->
@@ -189,13 +204,22 @@ if ($is_super_admin) {
                 </div>
             </div>
 
+            <!-- Section Title -->
+            <div class="mb-8 px-2 flex justify-between items-center">
+                <div>
+                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Resource Explorer</h4>
+                    <h3 class="text-xl font-black text-slate-800 uppercase italic">Authorized <span class="text-rose-700">Directories</span></h3>
+                </div>
+                <div class="h-px bg-slate-200 flex-1 mx-8 hidden xl:block"></div>
+            </div>
+
             <!-- Categories Grid -->
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 animate__animated animate__fadeInUp">
                 <?php if ($categories && $categories->num_rows > 0): ?>
                     <?php while($row = $categories->fetch_assoc()): ?>
                         <a href="documents.php?cat_id=<?php echo $row['id']; ?>" 
                            class="bg-white p-8 rounded-[2.5rem] border border-slate-200 crimson-card group relative overflow-hidden flex flex-col justify-between min-h-[280px]">
-                            
+                           
                             <!-- Design Element -->
                             <div class="absolute -top-10 -right-10 w-32 h-32 bg-rose-50 rounded-full opacity-50 group-hover:bg-rose-600 group-hover:scale-150 transition-all duration-700"></div>
 
@@ -223,6 +247,7 @@ if ($is_super_admin) {
                         </a>
                     <?php endwhile; ?>
                 <?php else: ?>
+                    <!-- Same Empty State as before -->
                     <div class="col-span-full py-32 text-center bg-white rounded-[3rem] border-4 border-dashed border-slate-200">
                         <div class="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
                             <i class="fa-solid fa-lock text-3xl text-slate-200"></i>

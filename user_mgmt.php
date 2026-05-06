@@ -13,7 +13,7 @@ $conn = new mysqli("localhost", "root", "", "asb_file_system");
 if (isset($_POST['add_user'])) {
     $uname = $_POST['username'];
     $name = $_POST['name'];
-    $pass = $_POST['password']; // No hashing as requested
+    $pass = $_POST['password']; 
     $phone = $_POST['contact_number'];
     $email = $_POST['email'];
     $role = $_POST['role_id'];
@@ -21,10 +21,17 @@ if (isset($_POST['add_user'])) {
 
     $stmt = $conn->prepare("INSERT INTO users (username, name, password, contact_number, email, role_id, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
     $stmt->bind_param("sssssii", $uname, $name, $pass, $phone, $email, $role, $branch);
-    $stmt->execute();
+    
+    if($stmt->execute()) {
+        $_SESSION['msg'] = "Identity Provisioned Successfully";
+        $_SESSION['msg_type'] = "success";
+    } else {
+        $_SESSION['msg'] = "Provisioning Failed";
+        $_SESSION['msg_type'] = "error";
+    }
 }
 
-// 2. Update User (Protecting ID 1)
+// 2. Update User
 if (isset($_POST['update_user'])) {
     $id = $_POST['user_id'];
     if ($id != 1) {
@@ -38,25 +45,30 @@ if (isset($_POST['update_user'])) {
 
         $stmt = $conn->prepare("UPDATE users SET username=?, name=?, password=?, contact_number=?, email=?, role_id=?, branch_id=? WHERE id=?");
         $stmt->bind_param("sssssiii", $uname, $name, $pass, $phone, $email, $role, $branch, $id);
-        $stmt->execute();
+        
+        if($stmt->execute()) {
+            $_SESSION['msg'] = "Identity Modified Successfully";
+            $_SESSION['msg_type'] = "success";
+        }
     }
 }
 
-// 3. Delete User (Protecting ID 1)
-if (isset($_GET['delete']) && $_GET['delete'] != 1) {
-    $id = $_GET['delete'];
-    $conn->query("DELETE FROM users WHERE id = $id");
-    header("Location: user_mgmt.php");
+// 3. Delete User
+if (isset($_GET['delete'])) {
+    $id = intval($_GET['delete']); 
+    if ($id != 1) {
+        $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        if($stmt->execute()) {
+            $_SESSION['msg'] = "Operator Terminated Successfully";
+            $_SESSION['msg_type'] = "success";
+        }
+        header("Location: user_mgmt.php");
+        exit(); 
+    }
 }
 
-// Fetch Data for Table
-$users = $conn->query("SELECT u.*, r.role_name, b.branch_name 
-                       FROM users u 
-                       LEFT JOIN roles r ON u.role_id = r.id 
-                       LEFT JOIN branches b ON u.branch_id = b.id 
-                       ORDER BY u.id ASC");
-
-// Fetch for Dropdowns
+$users = $conn->query("SELECT u.*, r.role_name, b.branch_name FROM users u LEFT JOIN roles r ON u.role_id = r.id LEFT JOIN branches b ON u.branch_id = b.id ORDER BY u.id ASC");
 $roles_list = $conn->query("SELECT id, role_name FROM roles");
 $branches_list = $conn->query("SELECT id, branch_name FROM branches");
 ?>
@@ -65,11 +77,14 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>User Control | ASB Infrastructure</title>
-	 <link rel="icon" type="image/png" href="logo.png">
+    <title>ASB | User Control</title>
+	<link rel="icon" type="image/png" href="logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; }
@@ -77,6 +92,10 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
         .master-lock { background: #fff1f2; border-left: 4px solid #be123c; }
         .input-field { background: #f1f5f9; border: 1px solid #e2e8f0; transition: all 0.3s; }
         .input-field:focus { border-color: #be123c; background: #fff; box-shadow: 0 0 0 4px rgba(190, 18, 60, 0.1); outline: none; }
+        
+        /* Custom SweetAlert Styling */
+        .swal2-popup { border-radius: 2rem !important; font-family: 'Plus Jakarta Sans', sans-serif !important; }
+        .swal2-confirm { background: #be123c !important; border-radius: 1rem !important; text-transform: uppercase !important; font-weight: 800 !important; font-size: 10px !important; letter-spacing: 0.1em !important; padding: 15px 30px !important; }
     </style>
 </head>
 <body class="flex">
@@ -118,7 +137,7 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
                         <td class="px-8 py-6">
                             <div class="flex items-center gap-4">
                                 <div class="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white font-bold text-xs">
-                                    <?php echo strtoupper(substr($row['username'], 0, 1)); ?>
+                                    <?php echo strtoupper(substr($row['username'] ?? 'U', 0, 1)); ?>
                                 </div>
                                 <div>
                                     <p class="text-sm font-black text-slate-800 uppercase italic leading-none"><?php echo $row['name']; ?></p>
@@ -136,8 +155,12 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
                         </td>
                         <td class="px-8 py-6 text-right space-x-2">
                             <?php if($row['id'] != 1): ?>
-                                <button onclick="openEditModal(<?php echo htmlspecialchars(json_encode($row)); ?>)" class="text-slate-400 hover:text-blue-600 transition"><i class="fa-solid fa-pen-nib"></i></button>
-                                <a href="" onclick="return confirm('Immediate Deletion of Operator?')" class="text-slate-400 hover:text-rose-600 transition"><i class="fa-solid fa-trash-can"></i></a>
+                                <button onclick='openEditModal(<?php echo json_encode($row); ?>)' class="text-slate-400 hover:text-blue-600 transition">
+                                    <i class="fa-solid fa-pen-nib"></i>
+                                </button>
+                                <button onclick="confirmDelete(<?php echo $row['id']; ?>, '<?php echo $row['name']; ?>')" class="text-slate-400 hover:text-rose-600 transition">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
                             <?php else: ?>
                                 <i class="fa-solid fa-shield-halved text-rose-200" title="System Master Locked"></i>
                             <?php endif; ?>
@@ -149,13 +172,12 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
         </div>
     </main>
 
-    <!-- USER MODAL (Shared for Add/Edit) -->
+    <!-- MODAL -->
     <div id="userModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
         <div class="bg-white w-full max-w-2xl rounded-[3rem] p-12 shadow-2xl animate__animated animate__zoomIn">
             <h3 id="modalTitle" class="text-2xl font-black text-slate-900 italic uppercase mb-8">System <span class="text-rose-700">Provisioning</span></h3>
             <form method="POST" class="grid grid-cols-2 gap-6">
                 <input type="hidden" name="user_id" id="u_id">
-                
                 <div class="space-y-4">
                     <div>
                         <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Username</label>
@@ -173,7 +195,7 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
 
                 <div class="space-y-4">
                     <div>
-                        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Contact (947XXXXXXXX)</label>
+                        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Contact</label>
                         <input type="text" name="contact_number" id="u_phone" pattern="947[0-9]{8}" placeholder="94712345678" required class="w-full px-5 py-4 rounded-2xl input-field text-sm font-bold">
                     </div>
                     <div>
@@ -208,10 +230,10 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
     </div>
 
     <script>
+        // Modal Handlers
         const modal = document.getElementById('userModal');
-        
         function openAddModal() {
-            document.getElementById('modalTitle').innerText = 'System Provisioning';
+            document.getElementById('modalTitle').innerHTML = 'System <span class="text-rose-700">Provisioning</span>';
             document.getElementById('submitBtn').name = 'add_user';
             document.getElementById('u_id').value = '';
             document.querySelector('form').reset();
@@ -219,7 +241,7 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
         }
 
         function openEditModal(user) {
-            document.getElementById('modalTitle').innerText = 'Modify Identity';
+            document.getElementById('modalTitle').innerHTML = 'Modify <span class="text-rose-700">Identity</span>';
             document.getElementById('submitBtn').name = 'update_user';
             document.getElementById('u_id').value = user.id;
             document.getElementById('u_username').value = user.username;
@@ -232,9 +254,41 @@ $branches_list = $conn->query("SELECT id, branch_name FROM branches");
             modal.classList.remove('hidden');
         }
 
-        function closeModal() {
-            modal.classList.add('hidden');
+        function closeModal() { modal.classList.add('hidden'); }
+
+        // SweetAlert Delete Confirmation
+        function confirmDelete(id, name) {
+            Swal.fire({
+                title: 'TERMINATE OPERATOR?',
+                text: `Immediate deletion of: ${name}. This action is irreversible.`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'CONFIRM TERMINATION',
+                cancelButtonText: 'ABORT',
+                background: '#fff',
+                color: '#0f172a',
+                iconColor: '#be123c',
+                customClass: {
+                    confirmButton: 'swal2-confirm'
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = `user_mgmt.php?delete=${id}`;
+                }
+            });
         }
+
+        // Trigger Flash Messages
+        <?php if(isset($_SESSION['msg'])): ?>
+            Swal.fire({
+                title: 'SYSTEM NOTIFICATION',
+                text: '<?php echo $_SESSION['msg']; ?>',
+                icon: '<?php echo $_SESSION['msg_type']; ?>',
+                timer: 3000,
+                showConfirmButton: false
+            });
+            <?php unset($_SESSION['msg']); unset($_SESSION['msg_type']); ?>
+        <?php endif; ?>
     </script>
 </body>
 </html>

@@ -7,6 +7,8 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role_id'] != 1) {
 
 $conn = new mysqli("localhost", "root", "", "asb_file_system");
 
+$feedback = ['type' => '', 'msg' => ''];
+
 // --- CRUD LOGIC ---
 
 // 1. Create Branch
@@ -15,7 +17,9 @@ if (isset($_POST['add_branch'])) {
     $code = $_POST['branch_code'];
     $stmt = $conn->prepare("INSERT INTO branches (branch_name, branch_code) VALUES (?, ?)");
     $stmt->bind_param("ss", $name, $code);
-    $stmt->execute();
+    if($stmt->execute()) {
+        $feedback = ['type' => 'success', 'msg' => "Branch successfully registered."];
+    }
 }
 
 // 2. Update Branch (Protecting ID 3)
@@ -26,15 +30,24 @@ if (isset($_POST['update_branch'])) {
         $code = $_POST['branch_code'];
         $stmt = $conn->prepare("UPDATE branches SET branch_name = ?, branch_code = ? WHERE id = ?");
         $stmt->bind_param("ssi", $name, $code, $id);
-        $stmt->execute();
+        if($stmt->execute()) {
+            $feedback = ['type' => 'success', 'msg' => "Branch infrastructure updated."];
+        }
     }
 }
 
-// 3. Delete Branch (Protecting ID 3)
-if (isset($_GET['delete']) && $_GET['delete'] != 3) {
-    $id = $_GET['delete'];
-    $conn->query("DELETE FROM branches WHERE id = $id");
-    header("Location: branch_mgmt.php");
+// 3. Delete Branch Logic (Triggered by GET)
+if (isset($_GET['delete_id']) && $_GET['delete_id'] != 3) {
+    $id = intval($_GET['delete_id']);
+    if($conn->query("DELETE FROM branches WHERE id = $id")) {
+        header("Location: branch_mgmt.php?status=purged");
+        exit();
+    }
+}
+
+// Check for purge status after redirect
+if(isset($_GET['status']) && $_GET['status'] == 'purged') {
+    $feedback = ['type' => 'success', 'msg' => "Branch has been successfully purged from the network."];
 }
 
 $branches = $conn->query("SELECT * FROM branches ORDER BY id ASC");
@@ -44,22 +57,25 @@ $branches = $conn->query("SELECT * FROM branches ORDER BY id ASC");
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Branch Control | ASB Infrastructure</title>
-	 <link rel="icon" type="image/png" href="logo.png">
+    <title>ASB | Branch Control</title>
+    <link rel="icon" type="image/png" href="logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; }
         .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(226, 232, 240, 0.8); }
         .crimson-gradient { background: linear-gradient(135deg, #be123c 0%, #9f1239 100%); }
         .restricted-row { background: #fff1f2; border-left: 4px solid #be123c; }
+        .swal2-popup { border-radius: 2rem !important; font-family: 'Plus Jakarta Sans', sans-serif !important; }
     </style>
 </head>
 <body class="flex">
 
-    <!-- Sidebar Re-used from Dashboard -->
+    <!-- Sidebar -->
     <div class="w-80 min-h-screen bg-[#0f172a] p-6 text-slate-400 hidden lg:block">
         <div class="mb-12 px-4">
             <h1 class="text-xl font-black text-white italic">ASB <span class="text-rose-600">GROUP</span></h1>
@@ -84,6 +100,13 @@ $branches = $conn->query("SELECT * FROM branches ORDER BY id ASC");
                 <i class="fa-solid fa-plus mr-2"></i> Register New Branch
             </button>
         </header>
+
+        <!-- Feedback Alert -->
+        <?php if($feedback['msg']): ?>
+            <div class="animate__animated animate__fadeInDown mb-6 p-4 rounded-2xl <?php echo $feedback['type'] == 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'; ?> text-[10px] font-black uppercase tracking-widest">
+                <i class="fa-solid fa-circle-info mr-2"></i> <?php echo $feedback['msg']; ?>
+            </div>
+        <?php endif; ?>
 
         <!-- Branch Table -->
         <div class="glass-panel rounded-[2.5rem] overflow-hidden shadow-sm animate__animated animate__fadeIn">
@@ -114,11 +137,12 @@ $branches = $conn->query("SELECT * FROM branches ORDER BY id ASC");
                                 <button onclick="editBranch(<?php echo $row['id']; ?>, '<?php echo $row['branch_name']; ?>', '<?php echo $row['branch_code']; ?>')" class="p-2 text-slate-400 hover:text-blue-600 transition">
                                     <i class="fa-solid fa-pen-to-square"></i>
                                 </button>
-                                <a href="" onclick="return confirm('Confirm Deletion?')" class="p-2 text-slate-400 hover:text-rose-600 transition">
+                                <!-- Fixed Delete Button -->
+                                <button onclick="confirmPurge(<?php echo $row['id']; ?>, '<?php echo $row['branch_name']; ?>')" class="p-2 text-slate-400 hover:text-rose-600 transition">
                                     <i class="fa-solid fa-trash"></i>
-                                </a>
+                                </button>
                             <?php else: ?>
-                                <i class="fa-solid fa-lock text-slate-300 p-2" title="Manual Overide Disabled"></i>
+                                <i class="fa-solid fa-lock text-slate-300 p-2" title="Manual Override Disabled"></i>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -128,7 +152,7 @@ $branches = $conn->query("SELECT * FROM branches ORDER BY id ASC");
         </div>
     </main>
 
-    <!-- ADD MODAL -->
+    <!-- ADD MODAL (Remains the same) -->
     <div id="addModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-6">
         <div class="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl animate__animated animate__zoomIn">
             <h3 class="text-2xl font-black text-slate-900 italic uppercase mb-6">New <span class="text-rose-700">Registry</span></h3>
@@ -149,7 +173,7 @@ $branches = $conn->query("SELECT * FROM branches ORDER BY id ASC");
         </div>
     </div>
 
-    <!-- EDIT MODAL -->
+    <!-- EDIT MODAL (Remains the same) -->
     <div id="editModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-6">
         <div class="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl">
             <h3 class="text-2xl font-black text-slate-900 italic uppercase mb-6">Modify <span class="text-rose-700">Branch</span></h3>
@@ -177,6 +201,26 @@ $branches = $conn->query("SELECT * FROM branches ORDER BY id ASC");
             document.getElementById('edit_name').value = name;
             document.getElementById('edit_code').value = code;
             document.getElementById('editModal').classList.remove('hidden');
+        }
+
+        // --- SweetAlert2 Delete Function ---
+        function confirmPurge(id, name) {
+            Swal.fire({
+                title: 'PURGE BRANCH?',
+                text: `You are about to disconnect ${name} from the terminal network.`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#be123c',
+                cancelButtonColor: '#0f172a',
+                confirmButtonText: 'YES, PURGE DATA',
+                cancelButtonText: 'ABORT',
+                background: '#ffffff',
+                color: '#0f172a'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = "branch_mgmt.php?delete_id=" + id;
+                }
+            })
         }
     </script>
 </body>

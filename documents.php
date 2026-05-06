@@ -11,12 +11,10 @@ $cat_id = $_GET['cat_id'] ?? 0;
 $role_id = $_SESSION['role_id'];
 $user_branch = $_SESSION['branch_id'];
 
-// Filters
 $search = $_GET['search'] ?? '';
 $year = $_GET['year'] ?? '';
 $month = $_GET['month'] ?? '';
 
-// --- PAGINATION LOGIC (Handelling 10,000+ records) ---
 $limit = 50; 
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $limit;
@@ -33,7 +31,7 @@ if ($access_stmt->get_result()->num_rows === 0) {
          </div>");
 }
 
-// 2. Get Dynamic Years (Only years that actually exist in your DB for this category)
+// 2. Available Years
 $year_query = $conn->prepare("SELECT DISTINCT YEAR(doc_date) as yr FROM documents WHERE category_id = ? ORDER BY yr DESC");
 $year_query->bind_param("i", $cat_id);
 $year_query->execute();
@@ -43,7 +41,7 @@ while($yr_row = $year_result->fetch_assoc()) {
     if($yr_row['yr']) $available_years[] = $yr_row['yr'];
 }
 
-// 3. Dynamic Query Building
+// 3. Query Building
 $query_base = "FROM documents d WHERE d.category_id = ? AND (d.branch_id = ? OR d.branch_id = '3')";
 $params = [$cat_id, $user_branch];
 $types = "ii";
@@ -64,14 +62,12 @@ if (!empty($month)) {
     $types .= "i";
 }
 
-// Get Total Count for Pagination
 $count_stmt = $conn->prepare("SELECT COUNT(*) as total " . $query_base);
 $count_stmt->bind_param($types, ...$params);
 $count_stmt->execute();
 $total_records = $count_stmt->get_result()->fetch_assoc()['total'];
 $total_pages = ceil($total_records / $limit);
 
-// Get Paginated Data
 $final_query = "SELECT d.* " . $query_base . " ORDER BY d.doc_date DESC LIMIT ? OFFSET ?";
 $final_params = array_merge($params, [$limit, $offset]);
 $final_types = $types . "ii";
@@ -81,7 +77,6 @@ $stmt->bind_param($final_types, ...$final_params);
 $stmt->execute();
 $docs = $stmt->get_result();
 
-// 4. Category Info (FIXED: Added get_result() to solve the Fatal Error)
 $cat_stmt = $conn->prepare("SELECT category_name FROM categories WHERE id = ?");
 $cat_stmt->bind_param("i", $cat_id);
 $cat_stmt->execute();
@@ -93,7 +88,7 @@ $cat_info = $cat_res->fetch_assoc();
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-	 <link rel="icon" type="image/png" href="logo.png">
+    <link rel="icon" type="image/png" href="logo.png">
     <title>ASB Archive | <?php echo htmlspecialchars($cat_info['category_name'] ?? 'Directory'); ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
@@ -113,10 +108,8 @@ $cat_info = $cat_res->fetch_assoc();
                 <p class="text-[10px] text-slate-300 uppercase tracking-[0.3em] mt-1">Registry Count: <?php echo number_format($total_records); ?> Files</p>
             </div>
 
-            <!-- Filter Form -->
             <form method="GET" class="flex flex-wrap gap-2 bg-black/30 p-4 rounded-xl border border-white/10 animate__animated animate__fadeInRight">
                 <input type="hidden" name="cat_id" value="<?php echo $cat_id; ?>">
-                
                 <input type="text" name="search" placeholder="Search title..." value="<?php echo htmlspecialchars($search); ?>" 
                     class="glass-input p-2 rounded text-xs text-white outline-none focus:bg-white focus:text-black transition w-40">
 
@@ -166,10 +159,11 @@ $cat_info = $cat_res->fetch_assoc();
                                 <td class="px-8 py-5 text-center text-slate-500 font-bold"><?php echo date('d M Y', strtotime($row['doc_date'])); ?></td>
                                 <td class="px-8 py-5 text-right">
                                     <div class="flex justify-end items-center gap-3">
-                                        <a href="download.php?id=<?php echo $row['id']; ?>&view=1" target="_blank" 
+                                        <!-- UPDATED: Links point to track_interaction.php -->
+                                        <a href="track_interaction.php?id=<?php echo $row['id']; ?>&type=VIEW" target="_blank" 
                                            class="text-[10px] font-black uppercase border-b-2 border-transparent hover:border-red-600 transition">View</a>
                                         
-                                        <a href="download.php?id=<?php echo $row['id']; ?>" 
+                                        <a href="track_interaction.php?id=<?php echo $row['id']; ?>&type=DOWNLOAD" 
                                            class="bg-slate-900 text-white px-5 py-2 rounded-lg text-[10px] font-black hover:bg-red-700 transition shadow-md uppercase">Download</a>
                                     </div>
                                 </td>
@@ -188,7 +182,6 @@ $cat_info = $cat_res->fetch_assoc();
                 </tbody>
             </table>
             
-            <!-- Pagination Controls -->
             <?php if($total_pages > 1): ?>
             <div class="p-6 bg-slate-50 border-t border-slate-200 flex justify-center items-center gap-2">
                 <?php 
