@@ -196,10 +196,10 @@ if ($is_super_admin) {
                     <?php endif; ?>
                 </div>
 
-                <!-- Archive Search -->
+                <!-- Archive Search (Updated with ID) -->
                 <div class="relative w-full md:w-96">
                     <i class="fa-solid fa-magnifying-glass absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
-                    <input type="text" placeholder="SEARCH DIRECTORIES..." 
+                    <input type="text" id="categorySearch" placeholder="SEARCH DIRECTORIES..." 
                            class="w-full bg-white border border-slate-200 py-4 pl-12 pr-6 rounded-2xl text-[10px] font-black tracking-widest focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 outline-none transition-all shadow-sm uppercase">
                 </div>
             </div>
@@ -213,52 +213,91 @@ if ($is_super_admin) {
                 <div class="h-px bg-slate-200 flex-1 mx-8 hidden xl:block"></div>
             </div>
 
-            <!-- Categories Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 animate__animated animate__fadeInUp">
+            <!-- Categories Grid (Updated with Container ID) -->
+            <div id="categoryGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 animate__animated animate__fadeInUp">
                 <?php if ($categories && $categories->num_rows > 0): ?>
                     <?php while($row = $categories->fetch_assoc()): ?>
-                        <a href="documents.php?cat_id=<?php echo $row['id']; ?>" 
-                           class="bg-white p-8 rounded-[2.5rem] border border-slate-200 crimson-card group relative overflow-hidden flex flex-col justify-between min-h-[280px]">
-                           
-                            <!-- Design Element -->
-                            <div class="absolute -top-10 -right-10 w-32 h-32 bg-rose-50 rounded-full opacity-50 group-hover:bg-rose-600 group-hover:scale-150 transition-all duration-700"></div>
+                        <!-- Added data-name and data-desc for the search filter -->
+                        <div class="category-card" 
+                             data-name="<?php echo strtolower(htmlspecialchars($row['category_name'])); ?>" 
+                             data-desc="<?php echo strtolower(htmlspecialchars($row['description'])); ?>">
+                            <a href="documents.php?cat_id=<?php echo $row['id']; ?>" 
+                               class="bg-white p-8 rounded-[2.5rem] border border-slate-200 crimson-card group relative overflow-hidden flex flex-col justify-between min-h-[280px] h-full block">
+                               
+                                <!-- Design Element -->
+                                <div class="absolute -top-10 -right-10 w-32 h-32 bg-rose-50 rounded-full opacity-50 group-hover:bg-rose-600 group-hover:scale-150 transition-all duration-700"></div>
 
-                            <div class="relative z-10">
-                                <div class="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center mb-6 shadow-xl group-hover:bg-rose-600 transition-colors duration-500">
-                                    <i class="fa-solid fa-folder-closed text-rose-500 group-hover:text-white text-xl"></i>
+                                <div class="relative z-10">
+                                    <div class="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center mb-6 shadow-xl group-hover:bg-rose-600 transition-colors duration-500">
+                                        <i class="fa-solid fa-folder-closed text-rose-500 group-hover:text-white text-xl"></i>
+                                    </div>
+                                    <h3 class="category-title text-xl font-black text-slate-800 group-hover:text-rose-700 transition-colors uppercase italic tracking-tight leading-tight">
+                                        <?php echo htmlspecialchars($row['category_name']); ?>
+                                    </h3>
+                                    <p class="text-slate-400 mt-4 text-xs font-bold leading-relaxed line-clamp-2">
+                                        <?php echo htmlspecialchars($row['description']); ?>
+                                    </p>
                                 </div>
-                                <h3 class="text-xl font-black text-slate-800 group-hover:text-rose-700 transition-colors uppercase italic tracking-tight leading-tight">
-                                    <?php echo htmlspecialchars($row['category_name']); ?>
-                                </h3>
-                                <p class="text-slate-400 mt-4 text-xs font-bold leading-relaxed line-clamp-2">
-                                    <?php echo htmlspecialchars($row['description']); ?>
-                                </p>
-                            </div>
-                            
-                            <div class="relative z-10 mt-8 flex items-center justify-between pt-6 border-t border-slate-50">
-                                <span class="text-rose-600 text-[10px] font-black tracking-[0.2em] uppercase flex items-center">
-                                    Initialize Access
-                                    <i class="fa-solid fa-chevron-right ml-2 transform group-hover:translate-x-2 transition-transform"></i>
-                                </span>
-                                <span class="text-slate-100 text-4xl font-black group-hover:text-rose-100 transition-colors italic">
-                                    #<?php echo str_pad($row['id'], 2, '0', STR_PAD_LEFT); ?>
-                                </span>
-                            </div>
-                        </a>
-                    <?php endwhile; ?>
-                <?php else: ?>
-                    <!-- Same Empty State as before -->
-                    <div class="col-span-full py-32 text-center bg-white rounded-[3rem] border-4 border-dashed border-slate-200">
-                        <div class="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <i class="fa-solid fa-lock text-3xl text-slate-200"></i>
+                                
+                                <div class="relative z-10 mt-8 flex items-center justify-between pt-6 border-t border-slate-50">
+                                    <span class="text-rose-600 text-[10px] font-black tracking-[0.2em] uppercase flex items-center">
+                                        Initialize Access
+                                        <i class="fa-solid fa-chevron-right ml-2 transform group-hover:translate-x-2 transition-transform"></i>
+                                    </span>
+                                    <span class="text-slate-100 text-4xl font-black group-hover:text-rose-100 transition-colors italic">
+                                        #<?php echo str_pad($row['id'], 2, '0', STR_PAD_LEFT); ?>
+                                    </span>
+                                </div>
+                            </a>
                         </div>
-                        <h3 class="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">Access Restricted</h3>
-                        <p class="text-slate-400 mt-2 font-bold text-xs uppercase tracking-widest">Your role profile has no authorized directories</p>
-                        <a href="mailto:admin@asb.com" class="mt-6 inline-block bg-slate-900 text-white px-8 py-3 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-rose-700 transition">Request Authorization</a>
-                    </div>
+                    <?php endwhile; ?>
                 <?php endif; ?>
+
+                <!-- Empty State (Hidden by default, shown by JS) -->
+                <div id="emptyState" class="hidden col-span-full py-32 text-center bg-white rounded-[3rem] border-4 border-dashed border-slate-200">
+                    <div class="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fa-solid fa-magnifying-glass text-3xl text-slate-200"></i>
+                    </div>
+                    <h3 class="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">No Matches Found</h3>
+                    <p class="text-slate-400 mt-2 font-bold text-xs uppercase tracking-widest">Adjust your search parameters or request access</p>
+                </div>
             </div>
         </div>
     </div>
+
+    <!-- Live Search JavaScript -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchInput = document.getElementById('categorySearch');
+            const categoryCards = document.querySelectorAll('.category-card');
+            const emptyState = document.getElementById('emptyState');
+            const grid = document.getElementById('categoryGrid');
+
+            searchInput.addEventListener('input', function(e) {
+                const query = e.target.value.toLowerCase().trim();
+                let visibleCount = 0;
+
+                categoryCards.forEach(card => {
+                    const name = card.getAttribute('data-name');
+                    const desc = card.getAttribute('data-desc');
+
+                    if (name.includes(query) || desc.includes(query)) {
+                        card.style.display = 'block';
+                        card.classList.add('animate__fadeIn');
+                        visibleCount++;
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+
+                // Handle Empty State Visibility
+                if (visibleCount === 0) {
+                    emptyState.classList.remove('hidden');
+                } else {
+                    emptyState.classList.add('hidden');
+                }
+            });
+        });
+    </script>
 </body>
 </html>

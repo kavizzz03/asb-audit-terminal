@@ -11,12 +11,11 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
-// Variables to trigger the SweetAlert2 JS
 $show_sms_prompt = false;
+$error_message = null;
 $sms_params = [];
 
 // --- CRUD LOGIC ---
-
 if (isset($_POST['add_doc'])) {
     $title = $_POST['title'];
     $date = $_POST['doc_date'];
@@ -24,7 +23,16 @@ if (isset($_POST['add_doc'])) {
     $cat_id = intval($_POST['category_id']); 
     $branch_input = intval($_POST['branch_id']); 
 
-    if (isset($_FILES['doc_file']) && $_FILES['doc_file']['type'] == 'application/pdf') {
+    if (empty($title) || empty($number) || empty($cat_id)) {
+        $error_message = "All critical fields must be populated.";
+    } 
+    elseif (!isset($_FILES['doc_file']) || $_FILES['doc_file']['error'] !== UPLOAD_ERR_OK) {
+        $error_message = "File upload failed. Please check file size.";
+    }
+    elseif ($_FILES['doc_file']['type'] !== 'application/pdf') {
+        $error_message = "Invalid File Type: Only PDF documents are accepted.";
+    } 
+    else {
         $target_dir = "uploads/docs/";
         if (!file_exists($target_dir)) mkdir($target_dir, 0777, true);
         
@@ -32,35 +40,37 @@ if (isset($_POST['add_doc'])) {
         $target_file = $target_dir . $file_name;
 
         if (move_uploaded_file($_FILES["doc_file"]["tmp_name"], $target_file)) {
-            // Save exactly as input (Branch 3 is handled normally)
             $stmt = $conn->prepare("INSERT INTO documents (title, doc_date, doc_number, file_path, category_id, branch_id) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->bind_param("ssssii", $title, $date, $number, $target_file, $cat_id, $branch_input);
             
             if($stmt->execute()) {
-                // 1. Get Category Name
                 $stmt_cat = $conn->prepare("SELECT category_name FROM categories WHERE id = ?");
                 $stmt_cat->bind_param("i", $cat_id);
                 $stmt_cat->execute();
                 $cat_data = $stmt_cat->get_result()->fetch_assoc();
                 $cat_name = $cat_data['category_name'] ?? 'General';
 
-                // 2. Get Branch Name (Normal lookup for all IDs)
                 $stmt_br = $conn->prepare("SELECT branch_name FROM branches WHERE id = ?");
                 $stmt_br->bind_param("i", $branch_input);
                 $stmt_br->execute();
                 $br_data = $stmt_br->get_result()->fetch_assoc();
                 $branch_name = $br_data['branch_name'] ?? 'Universal Showrooms';
 
-                // 3. Prepare data for SweetAlert2 (Triggers for ANY branch ID)
                 $show_sms_prompt = true;
                 $sms_params = [
-                    'title' => $title,
-                    'cat_name' => $cat_name,
-                    'cat_id' => $cat_id,
-                    'branch_name' => $branch_name,
-                    'branch_id' => $branch_input 
+                    'title' => $title, 'cat_name' => $cat_name, 'cat_id' => $cat_id,
+                    'branch_name' => $branch_name, 'branch_id' => $branch_input 
                 ];
+            } else {
+                if ($conn->errno == 1062) {
+                    $error_message = "Integrity Error: Document number [$number] is already registered.";
+                } else {
+                    $error_message = "Vault Error: " . $conn->error;
+                }
+                if (file_exists($target_file)) unlink($target_file);
             }
+        } else {
+            $error_message = "File System Error: Could not write file to disk.";
         }
     }
 }
@@ -77,14 +87,15 @@ if (isset($_GET['delete'])) {
     exit();
 }
 
-// Fetch lists for the UI
+// Fetch lists
 $docs = $conn->query("SELECT d.*, c.category_name, b.branch_name FROM documents d LEFT JOIN categories c ON d.category_id = c.id LEFT JOIN branches b ON d.branch_id = b.id ORDER BY d.id DESC");
 $cats = $conn->query("SELECT id, category_name FROM categories");
 $brs = $conn->query("SELECT id, branch_name FROM branches");
 ?>
 
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="en">
+<head>
     <meta charset="UTF-8">
     <title>Registry Terminal | ASB Group</title>
     <link rel="icon" type="image/png" href="logo.png">
@@ -96,9 +107,8 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; }
         .crimson-gradient { background: linear-gradient(135deg, #be123c 0%, #7f1d1d 100%); }
-        .drop-zone { border: 2px dashed #e2e8f0; transition: all 0.3s; }
-        .drop-zone--over { border-color: #be123c; background: #fff1f2; }
-        .swal2-popup { border-radius: 2rem !important; font-family: 'Plus Jakarta Sans', sans-serif !important; }
+        .glass-input { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); border: 1px solid #e2e8f0; }
+        .swal2-popup { border-radius: 2rem !important; }
     </style>
 </head>
 <body class="flex">
@@ -114,20 +124,42 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
     </div>
 
     <main class="flex-1 p-10 h-screen overflow-y-auto">
-        <header class="flex justify-between items-center mb-10">
+        <header class="flex justify-between items-center mb-6">
             <div>
                 <h2 class="text-3xl font-black text-slate-900 tracking-tight italic uppercase">Document <span class="text-rose-700">Vault</span></h2>
-                <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">Binary Archive & PDF Security</p>
+                <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">Binary Archive & Security</p>
             </div>
             <button onclick="openModal()" class="crimson-gradient px-8 py-4 rounded-2xl text-white text-[10px] font-black uppercase tracking-widest shadow-xl">
                 <i class="fa-solid fa-cloud-arrow-up mr-2"></i> Upload New Archive
             </button>
         </header>
 
-        <!-- Document List -->
-        <div class="grid grid-cols-1 gap-4">
+        <!-- FILTER BAR -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm">
+            <div class="relative md:col-span-2">
+                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                <input type="text" id="searchInput" placeholder="Search by Title or Ref Number..." 
+                    class="w-full pl-12 pr-4 py-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-xs uppercase text-slate-700 focus:ring-2 focus:ring-rose-500">
+            </div>
+            <select id="catFilter" class="bg-slate-50 p-3 rounded-xl border-none outline-none font-bold text-[10px] uppercase text-slate-600">
+                <option value="">All Categories</option>
+                <?php if($cats) { $cats->data_seek(0); while($c = $cats->fetch_assoc()) echo "<option value='".htmlspecialchars($c['category_name'])."'>{$c['category_name']}</option>"; } ?>
+            </select>
+            <select id="branchFilter" class="bg-slate-50 p-3 rounded-xl border-none outline-none font-bold text-[10px] uppercase text-slate-600">
+                <option value="">All Branches</option>
+                <?php if($brs) { $brs->data_seek(0); while($b = $brs->fetch_assoc()) echo "<option value='".htmlspecialchars($b['branch_name'])."'>{$b['branch_name']}</option>"; } ?>
+            </select>
+        </div>
+
+        <!-- Document List Container -->
+        <div id="docContainer" class="grid grid-cols-1 gap-4">
             <?php if($docs): while($row = $docs->fetch_assoc()): ?>
-                <div class="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between hover:shadow-lg transition group">
+                <div class="doc-item bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between hover:shadow-lg transition group"
+                     data-title="<?php echo strtolower($row['title']); ?>"
+                     data-number="<?php echo strtolower($row['doc_number']); ?>"
+                     data-category="<?php echo htmlspecialchars($row['category_name']); ?>"
+                     data-branch="<?php echo htmlspecialchars($row['branch_name']); ?>">
+                    
                     <div class="flex items-center gap-6">
                         <div class="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition-all duration-500">
                             <i class="fa-solid fa-file-pdf text-2xl"></i>
@@ -148,10 +180,11 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
                     </div>
                 </div>
             <?php endwhile; endif; ?>
+            <div id="noResults" class="hidden text-center py-20 text-slate-400 uppercase font-black tracking-widest text-xs">No documents match your filters</div>
         </div>
     </main>
 
-    <!-- UPLOAD MODAL -->
+    <!-- UPLOAD MODAL (Same as before) -->
     <div id="uploadModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
         <div class="bg-white w-full max-w-2xl rounded-[3rem] p-10 shadow-2xl animate__animated animate__fadeInUp">
             <h3 class="text-2xl font-black text-slate-900 italic uppercase mb-8">Archive <span class="text-rose-700">Initialization</span></h3>
@@ -160,26 +193,23 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
                     <input type="text" name="title" placeholder="Document Title" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm uppercase">
                     <input type="text" name="doc_number" placeholder="Ref Number" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm">
                 </div>
-                
                 <div class="grid grid-cols-3 gap-4">
                     <input type="date" name="doc_date" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm">
                     <select name="category_id" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm uppercase">
-                        <option value="">Select Category</option>
+                        <option value="">Category</option>
                         <?php if($cats) { $cats->data_seek(0); while($c = $cats->fetch_assoc()) echo "<option value='{$c['id']}'>{$c['category_name']}</option>"; } ?>
                     </select>
                     <select name="branch_id" required class="w-full bg-slate-50 p-4 rounded-2xl border-none outline-none font-bold text-sm uppercase">
-                        <option value="">Select Branch</option>
+                        <option value="">Branch</option>
                         <?php if($brs) { $brs->data_seek(0); while($b = $brs->fetch_assoc()) echo "<option value='{$b['id']}'>{$b['branch_name']}</option>"; } ?>
                     </select>
                 </div>
-
                 <div id="dropZone" class="drop-zone rounded-[2rem] p-12 text-center cursor-pointer">
                     <i class="fa-solid fa-file-pdf text-4xl text-slate-200 mb-4"></i>
-                    <p class="text-xs font-black text-slate-400 uppercase tracking-widest">Drag PDF here or click to browse</p>
+                    <p class="text-xs font-black text-slate-400 uppercase tracking-widest">Select PDF Archive</p>
                     <p id="fileName" class="text-rose-600 text-xs font-bold mt-2"></p>
                     <input type="file" name="doc_file" id="fileInput" accept=".pdf" class="hidden" required>
                 </div>
-
                 <div class="flex gap-4">
                     <button type="submit" name="add_doc" class="flex-1 crimson-gradient py-5 rounded-2xl text-white text-[10px] font-black uppercase tracking-widest">Commit to Vault</button>
                     <button type="button" onclick="closeModal()" class="px-10 py-5 bg-slate-100 rounded-2xl text-slate-500 text-[10px] font-black uppercase">Abort</button>
@@ -189,62 +219,83 @@ $brs = $conn->query("SELECT id, branch_name FROM branches");
     </div>
 
     <script>
-        const modal = document.getElementById('uploadModal');
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-        const fileNameDisp = document.getElementById('fileName');
+        // --- LIVE SEARCH & FILTER LOGIC ---
+        const searchInput = document.getElementById('searchInput');
+        const catFilter = document.getElementById('catFilter');
+        const branchFilter = document.getElementById('branchFilter');
+        const docItems = document.querySelectorAll('.doc-item');
+        const noResults = document.getElementById('noResults');
 
+        function performFilter() {
+            const searchTerm = searchInput.value.toLowerCase();
+            const selectedCat = catFilter.value;
+            const selectedBranch = branchFilter.value;
+            let visibleCount = 0;
+
+            docItems.forEach(item => {
+                const title = item.getAttribute('data-title');
+                const number = item.getAttribute('data-number');
+                const category = item.getAttribute('data-category');
+                const branch = item.getAttribute('data-branch');
+
+                const matchesSearch = title.includes(searchTerm) || number.includes(searchTerm);
+                const matchesCat = selectedCat === "" || category === selectedCat;
+                const matchesBranch = selectedBranch === "" || branch === selectedBranch;
+
+                if (matchesSearch && matchesCat && matchesBranch) {
+                    item.style.display = 'flex';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            noResults.classList.toggle('hidden', visibleCount > 0);
+        }
+
+        searchInput.onkeyup = performFilter;
+        catFilter.onchange = performFilter;
+        branchFilter.onchange = performFilter;
+
+        // --- UI & ALERTS ---
+        const modal = document.getElementById('uploadModal');
+        const fileInput = document.getElementById('fileInput');
         function openModal() { modal.classList.remove('hidden'); }
         function closeModal() { modal.classList.add('hidden'); }
-
-        dropZone.onclick = () => fileInput.click();
-        fileInput.onchange = () => {
-            if(fileInput.files.length) fileNameDisp.innerText = "Selected: " + fileInput.files[0].name;
-        };
+        document.getElementById('dropZone').onclick = () => fileInput.click();
+        fileInput.onchange = () => { if(fileInput.files.length) document.getElementById('fileName').innerText = fileInput.files[0].name; };
 
         function confirmDelete(id) {
             Swal.fire({
-                title: 'Are you sure?',
-                text: "This will wipe the physical PDF and database entry!",
+                title: 'Confirm Destruction?',
+                text: "Removing this document is permanent.",
                 icon: 'warning',
                 showCancelButton: true,
                 confirmButtonColor: '#be123c',
-                cancelButtonColor: '#0f172a',
-                confirmButtonText: 'Yes, Delete it!',
+                confirmButtonText: 'Delete Now',
                 background: '#ffffff',
                 color: '#0f172a'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    window.location.href = "?delete=" + id;
-                }
-            })
+            }).then((result) => { if (result.isConfirmed) window.location.href = "?delete=" + id; });
         }
 
-        // --- Post-Upload SweetAlert2 Logic ---
+        <?php if ($error_message): ?>
+        Swal.fire({ title: 'Error', text: "<?php echo addslashes($error_message); ?>", icon: 'error', confirmButtonColor: '#be123c' }).then(() => openModal());
+        <?php endif; ?>
+
         <?php if ($show_sms_prompt): ?>
-        window.onload = function() {
-            const params = <?php echo json_encode($sms_params); ?>;
-            
-            Swal.fire({
-                title: 'Document Secured!',
-                text: "The document for <?php echo addslashes($sms_params['branch_name']); ?> has been recorded. Do you want to broadcast SMS alerts?",
-                icon: 'success',
-                showCancelButton: true,
-                confirmButtonColor: '#be123c',
-                cancelButtonColor: '#64748b',
-                confirmButtonText: 'Broadcast SMS',
-                cancelButtonText: 'No, Just Finish',
-                background: '#ffffff',
-                color: '#0f172a'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    const queryString = new URLSearchParams(params).toString();
-                    window.location.href = "send_notification.php?" + queryString;
-                } else {
-                    window.location.href = "document_mgmt.php";
-                }
-            });
-        };
+        const params = <?php echo json_encode($sms_params); ?>;
+        Swal.fire({
+            title: 'Secured!',
+            text: "Document added for <?php echo addslashes($sms_params['branch_name']); ?>. Broadcast SMS?",
+            icon: 'success',
+            showCancelButton: true,
+            confirmButtonColor: '#be123c',
+            confirmButtonText: 'Broadcast SMS',
+            cancelButtonText: 'Finish'
+        }).then((result) => {
+            if (result.isConfirmed) window.location.href = "send_notification.php?" + new URLSearchParams(params).toString();
+            else window.location.href = "document_mgmt.php";
+        });
         <?php endif; ?>
     </script>
 </body>
